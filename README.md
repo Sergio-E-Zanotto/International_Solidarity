@@ -14,7 +14,8 @@ This repository hosts all materials for the paper authored by:
 ### Data
 
 The datasets analyzed in this study are available upon request to [office.garcia@uni-konstanz.de](mailto:office.garcia@uni-konstanz.de).  
-Due to X (formerly Twitter) data-sharing policies, data cannot be redistributed here. \n
+Due to X (formerly Twitter) data-sharing policies, data cannot be redistributed here. 
+
 Official_dictionary.csv is the dictionary we used for identifying and classifying references of interest for our project.
 
 ### Scripts
