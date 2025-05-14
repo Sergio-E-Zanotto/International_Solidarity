@@ -1,0 +1,932 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r, include = F}
+library(dplyr)
+library(readr)
+library(tidyr)
+library(broom)
+library(car)
+library(lubridate)
+library(lmtest)
+library(margins)
+library(sandwich)
+library(clubSandwich)
+library(ggeffects)
+library(lme4)
+library(ggplot2)
+```
+
+
+```{r, include = F}
+# Read the CSV files
+df_predicted_as_one_filtered <- read_csv("Official_data.csv", locale = locale(encoding = "UTF-8"))
+
+```
+
+```{r}
+colnames(df_predicted_as_one_filtered) <- gsub("/", "_", colnames(df_predicted_as_one_filtered))
+
+# Check column names after replacement
+print(colnames(df_predicted_as_one_filtered))
+```
+
+```{r}
+df_predicted_as_one_filtered <- df_predicted_as_one_filtered[
+  substr(df_predicted_as_one_filtered$Time, 1, 4) != "2025",
+]
+```
+
+
+
+```{r}
+# H1
+
+
+# Fit a mixed-effects logistic regression model with a random intercept for each politician (ID)
+logit_model_mixed <- glmer(
+  Attack_Support_Predicted ~ Populist + (1 | ID),  # (1 | ID) adds a random intercept per politician
+  data = df_predicted_as_one_filtered,
+  family = binomial(link = "logit"),
+  weights = weights_pop
+)
+
+# Display the summary of the model
+summary(logit_model_mixed)
+
+# Get predicted probabilities or marginal effects from the mixed model
+effects_populist <- ggpredict(logit_model_mixed, terms = "Populist")
+
+ggplot(effects_populist, aes(x = as.factor(x), y = predicted)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.1) +
+  scale_y_log10() +
+  coord_flip() +
+  labs(
+    x = "Populist (0 = Non-populist, 1 = Populist)",
+    y = "Predicted Probability (log scale)",
+    title = "Effect of Populism on Attack Tweets"
+  ) +
+  theme_minimal()
+
+
+
+```
+
+
+
+```{r}
+## H2
+
+## weighted regression for: attack solidarity - government
+
+# Fit a mixed-effects logistic regression model with a random intercept for each politician (ID)
+mixed_model <- glmer(
+  Attack_Support_Predicted ~ government + (1 | ID),  # (1 | ID) adds a random intercept for each politician
+  data = df_predicted_as_one_filtered,
+  family = binomial(link = "logit"),
+  weights = weights_gov
+)
+
+# Display the summary of the mixed-effects model
+summary(mixed_model)
+
+
+
+# Get predicted probabilities or marginal effects from the mixed model
+effects_government <- ggpredict(mixed_model, terms = "government")
+
+ggplot(effects_government, aes(x = as.factor(x), y = predicted)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.1) +
+  scale_y_log10() +
+  coord_flip() +
+  labs(
+    x = "Government (0 = Not in Government, 1 = In Government)",
+    y = "Predicted Probability (log scale)",
+    title = "Effect of Government on Attack Tweets"
+  ) +
+  theme_minimal()
+
+
+```
+
+
+
+```{r}
+mixed_model_nested <- glmer(
+  Attack_Support_Predicted ~ government + (1 + government | ID),
+  data = df_predicted_as_one_filtered,
+  family = binomial(link = "logit"),
+  weights = weights_gov
+)
+
+# Display the summary of the nested mixed-effects model
+summary(mixed_model_nested)
+
+# Step 7: Compute marginal effects for government using ggpredict (averaging over random effects)
+effects_government_nested <- ggpredict(mixed_model_nested, terms = "government")
+
+# Step 8: Plot the marginal effects treating government as a categorical variable
+ggplot(effects_government_nested, aes(x = as.factor(x), y = predicted)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.1) +
+  scale_y_log10() +
+  coord_flip() +
+  labs(
+    x = "Government (0 = Not in Government, 1 = In Government)",
+    y = "Predicted Probability (log scale)",
+    title = "Effect of Government on Attack Tweets (Nested Model)"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+anova(mixed_model, mixed_model_nested, test = "Chisq")
+```
+
+
+```{r}
+
+# Step 1: Calculate weights for 'Populist'
+populist_weights <- with(df_predicted_as_one_filtered, 
+                         ifelse(Populist == 1, 1 / mean(Populist == 1), 1 / mean(Populist == 0)))
+
+# Step 2: Calculate weights for 'government'
+government_weights <- with(df_predicted_as_one_filtered, 
+                           ifelse(government == 1, 1 / mean(government == 1), 1 / mean(government == 0)))
+
+# Step 3: Combine weights for both variables
+df_predicted_as_one_filtered$weights <- populist_weights * government_weights
+
+# Step 4: Fit the mixed-effects logistic regression model with a random intercept for each politician (ID)
+mixed_model <- glmer(
+  Attack_Support_Predicted ~ Populist + government + Populist:government + (1 | ID),
+  data = df_predicted_as_one_filtered,
+  family = binomial(link = "logit"),
+  weights = weights
+)
+
+
+
+# Step 5: Display the model summary
+summary(mixed_model)
+
+# Step 6: Compute marginal effects for the interaction term
+marginal_effects_interaction <- ggpredict(mixed_model, terms = c("government", "Populist"))
+
+ggplot(marginal_effects_interaction, aes(x = as.factor(x), y = predicted, color = as.factor(group))) +
+  geom_point(position = position_dodge(width = 0.3), size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), position = position_dodge(width = 0.3), width = 0.1) +
+  scale_y_log10() +
+  coord_flip() +
+  labs(
+    x = "Government (0 = Not in Government, 1 = In Government)",
+    y = "Predicted Probability (log scale)",
+    color = "Populist (0 = Non-Populist, 1 = Populist)",
+    title = "Interaction Effect: Government & Populism on Attack Tweets"
+  ) +
+  theme_minimal()
+
+```
+
+
+
+```{r}
+# Model without the random intercept
+fixed_model <- glm(
+  Attack_Support_Predicted ~ Populist + government + Populist:government,
+  data = df_predicted_as_one_filtered,
+  family = binomial(link = "logit"),
+  weights = weights
+)
+
+# Compare the models using a likelihood ratio test
+print(anova(fixed_model, mixed_model, test = "Chisq"))
+```
+
+
+```{r}
+mixed_model_nested <- glmer(
+  Attack_Support_Predicted ~ Populist + government + Populist:government + (1 + government | ID),
+  data = df_predicted_as_one_filtered,
+  family = binomial(link = "logit"),
+  weights = weights
+)
+anova(mixed_model, mixed_model_nested, test = "Chisq")
+
+
+```
+```{r}
+summary(mixed_model_nested)
+
+
+marginal_effects_interaction_nested <- ggpredict(mixed_model_nested, terms = c("government", "Populist"))
+
+p = ggplot(marginal_effects_interaction_nested, aes(x = as.factor(x), y = predicted, color = as.factor(group))) +
+  geom_point(position = position_dodge(width = 0.3), size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), position = position_dodge(width = 0.3), width = 0.1) +
+  scale_y_log10() +
+  coord_flip() +
+  labs(
+    x = "Government (0 = Not in Government, 1 = In Government)",
+    y = "Predicted Probability (log scale)",
+    color = "Populist (0 = Non-Populist, 1 = Populist)",
+    title = "Interaction Effect: Government & Populism on Attack Tweets"
+  ) +
+  theme_minimal()
+
+ggsave("interaction_pop_gov.pdf", plot = p, device = "pdf", width = 8, height = 6)
+```
+
+
+```{r}
+# Step 1: Calculate weights for 'rec_don'
+rec_don_weights <- with(df_predicted_as_one_filtered, 
+                        ifelse(rec_don == 1, 1 / mean(rec_don == 1), 1 / mean(rec_don == 0)))
+
+# Step 2: Add the rec_don weights to the data frame
+df_predicted_as_one_filtered$weights11 <- rec_don_weights
+
+# Step 3: Fit the mixed-effects logistic regression model with only rec_don as a predictor
+mixed_model <- glmer(
+  Attack_Support_Predicted ~ rec_don + (1 | ID),
+  data = df_predicted_as_one_filtered,
+  family = binomial(link = "logit"),
+  weights = weights11
+)
+
+# Step 4: Display the summary of the mixed-effects model
+summary(mixed_model)
+
+# Step 5 (Optional): Compute marginal effects for rec_don
+marginal_effects <- ggpredict(mixed_model, terms = "rec_don")
+
+# Step 6 (Optional): Plot the marginal effects
+ggplot(marginal_effects, aes(x = as.factor(x), y = predicted)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.1) +
+  scale_y_log10() +
+  coord_flip() +
+  labs(
+    x = "Recipient/Donor (0 = Recipient, 1 = Donor)",
+    y = "Predicted Probability (log scale)",
+    title = "Effect of Recipient/Donor on Attack Tweets"
+  ) +
+  theme_minimal()
+
+```
+
+```{r}
+# Step 5: Fit the nested mixed-effects logistic regression model with a random intercept and slope for rec_don
+mixed_model_nested <- glmer(
+  Attack_Support_Predicted ~ rec_don + (1 + rec_don | ID),
+  data = df_predicted_as_one_filtered,
+  family = binomial(link = "logit"),
+  weights = weights11
+)
+
+# Step 6: Display the summary of the nested mixed-effects model
+summary(mixed_model_nested)
+
+# Step 7: Compute marginal effects for rec_don using ggpredict
+marginal_effects_rec_don_nested <- ggpredict(mixed_model_nested, terms = "rec_don")
+
+# Step 8: Plot the marginal effects treating rec_don as a categorical variable
+ggplot(marginal_effects_rec_don_nested, aes(x = as.factor(x), y = predicted)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.1) +
+  scale_y_log10() +
+  coord_flip() +
+  labs(
+    x = "Recipient/Donor (0 = Recipient, 1 = Donor)",
+    y = "Predicted Probability (log scale)",
+    title = "Effect of Recipient/Donor on Attack Tweets (Nested Model)"
+  ) +
+  theme_minimal()
+```
+
+
+```{r}
+anova(mixed_model, mixed_model_nested, test = "Chisq")
+```
+
+```{r}
+## H3
+
+## weighted regression for: attack - recipient/donor + populist + (interaction populist - rec/don)
+
+
+# Step 2: Calculate weights for 'rec_don'
+rec_don_weights <- with(df_predicted_as_one_filtered, ifelse(rec_don == 1, 
+                                  1 / mean(rec_don == 1), 
+                                  1 / mean(rec_don == 0)))
+
+# Step 3: Combine weights for both variables
+df_predicted_as_one_filtered$weights1 <- populist_weights * rec_don_weights
+
+# Step 4: Fit the mixed-effects logistic regression model with a random intercept for each politician (ID)
+
+mixed_model <- glmer(
+  Attack_Support_Predicted ~ Populist + rec_don + Populist:rec_don + (1 | ID),
+  data = df_predicted_as_one_filtered,
+  family = binomial(link = "logit"),
+  weights = weights1
+)
+
+# Step 5: Display the summary of the mixed-effects model
+summary(mixed_model)
+
+
+# Step 6: Compute marginal effects for the interaction term
+marginal_effects_interaction <- ggpredict(mixed_model, terms = c("rec_don", "Populist"))
+
+ggplot(marginal_effects_interaction, aes(x = as.factor(x), y = predicted, color = as.factor(group))) +
+  geom_point(position = position_dodge(width = 0.3), size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), position = position_dodge(width = 0.3), width = 0.1) +
+  scale_y_log10() +
+  coord_flip() +
+  labs(
+    x = "Recipient/Donor (0 = Recipient, 1 = Donor)",
+    y = "Predicted Probability (log scale)",
+    color = "Populist (0 = Non-Populist, 1 = Populist)",
+    title = "Interaction Effect: Recipient/Donor & Populism on Attack Tweets"
+  ) +
+  theme_minimal()
+
+
+```
+
+```{r}
+# 1. Fit the nested model with a random slope for rec_don:
+mixed_model_nested <- glmer(
+  Attack_Support_Predicted ~ Populist + rec_don + Populist:rec_don + (1 + rec_don | ID),
+  data = df_predicted_as_one_filtered,
+  family = binomial(link = "logit"),
+  weights = weights1
+)
+
+summary(mixed_model_nested)
+
+
+# 2. Compute marginal effects for the interaction between rec_don and Populist:
+
+marginal_effects_interaction_nested <- ggpredict(mixed_model_nested, terms = c("rec_don", "Populist"))
+
+# 3. Plot the marginal effects:
+p = ggplot(marginal_effects_interaction_nested, aes(x = as.factor(x), y = predicted, color = as.factor(group))) +
+  geom_point(position = position_dodge(width = 0.3), size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), position = position_dodge(width = 0.3), width = 0.1) +
+  scale_y_log10() +
+  coord_flip() +
+  labs(
+    x = "rec_don (0 = Recipient, 1 = Donor)",
+    y = "Predicted Probability (log scale)",
+    color = "Populist (0 = Non-Populist, 1 = Populist)",
+    title = "Interaction Effect: rec_don & Populism on Attack Tweets"
+  ) +
+  theme_minimal()
+
+ggsave("interaction_pop_rec.pdf", plot = p, device = "pdf", width = 8, height = 6)
+```
+```{r}
+anova(mixed_model, mixed_model_nested, test = "Chisq")
+```
+
+
+```{r}
+## only-populist weighted regression for: attack - recipient/donor
+
+ # Step 1: Filter the dataset for `Populist == 1`
+populist_df <- df_predicted_as_one_filtered %>%
+  filter(Populist == 1)
+
+# Step 2: Convert 'rec_don' to categorical codes (0/1)
+populist_df <- populist_df %>%
+  mutate(rec_don = as.numeric(as.factor(rec_don)) - 1)
+
+# Step 3: Remove duplicate tweets based on 'Tweet Text'
+populist_df <- populist_df %>%
+  distinct(`Tweet Text`, .keep_all = TRUE)
+
+# Step 4: Calculate weights for `rec_don` based on its mean
+populist_df <- populist_df %>%
+  mutate(weight_recdon = ifelse(
+    rec_don == 1,
+    1 / mean(rec_don == 1),
+    1 / mean(rec_don == 0)
+  ))
+
+# Step 5: Fit the mixed-effects logistic regression model with a random intercept for each politician (ID)
+mixed_model <- glmer(
+  Attack_Support_Predicted ~ rec_don + (1 | ID),
+  data = populist_df,
+  family = binomial(link = "logit"),
+  weights = weight_recdon
+)
+
+# Step 6: Display the summary of the mixed-effects model
+summary(mixed_model)
+
+
+
+# Step 7: Compute marginal effects using ggpredict
+marginal_effects_rec_don <- ggpredict(mixed_model, terms = "rec_don")
+
+# Step 8: Plot as a categorical variable
+ggplot(marginal_effects_rec_don, aes(x = as.factor(x), y = predicted)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.1) +
+  scale_y_log10() +
+  coord_flip() +
+  labs(
+    x = "Recipient/Donor (0 = Recipient, 1 = Donor)",
+    y = "Predicted Probability (log scale)",
+    title = "Effect of Recipient/Donor on Attack Tweets"
+  ) +
+  theme_minimal()
+
+
+```
+
+```{r}
+# Step 5: Fit the nested mixed-effects logistic regression model with a random intercept and slope for rec_don
+mixed_model_nested <- glmer(
+  Attack_Support_Predicted ~ rec_don + (1 + rec_don | ID),
+  data = populist_df,
+  family = binomial(link = "logit"),
+  weights = weight_recdon
+)
+
+# Step 6: Display the summary of the nested mixed-effects model
+summary(mixed_model_nested)
+
+# Step 7: Compute marginal effects for rec_don using ggpredict
+marginal_effects_rec_don_nested <- ggpredict(mixed_model_nested, terms = "rec_don")
+
+# Step 8: Plot the marginal effects treating rec_don as a categorical variable
+ggplot(marginal_effects_rec_don_nested, aes(x = as.factor(x), y = predicted)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.1) +
+  scale_y_log10() +
+  coord_flip() +
+  labs(
+    x = "Recipient/Donor (0 = Recipient, 1 = Donor)",
+    y = "Predicted Probability (log scale)",
+    title = "Effect of Recipient/Donor on Attack Tweets (Nested Model)"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+anova(mixed_model, mixed_model_nested, test = "Chisq")
+```
+
+
+```{r}
+## only-populist weighted regression for: attack - recipient/donor
+
+ # Step 1: Filter the dataset for `Populist == 1`
+nonpopulist_df <- df_predicted_as_one_filtered %>%
+  filter(Populist == 0)
+
+# Step 2: Convert 'rec_don' to categorical codes (0/1)
+nonpopulist_df <- nonpopulist_df %>%
+  mutate(rec_don = as.numeric(as.factor(rec_don)) - 1)
+
+# Step 3: Remove duplicate tweets based on 'Tweet Text'
+nonpopulist_df <- nonpopulist_df %>%
+  distinct(`Tweet Text`, .keep_all = TRUE)
+
+# Step 4: Calculate weights for `rec_don` based on its mean
+nonpopulist_df <- nonpopulist_df %>%
+  mutate(weight_recdon = ifelse(
+    rec_don == 1,
+    1 / mean(rec_don == 1),
+    1 / mean(rec_don == 0)
+  ))
+
+
+# Step 5: Fit the nested mixed-effects logistic regression model with a random intercept and slope for rec_don
+mixed_model_nested <- glmer(
+  Attack_Support_Predicted ~ rec_don + (1 + rec_don | ID),
+  data = nonpopulist_df,
+  family = binomial(link = "logit"),
+  weights = weight_recdon
+)
+
+# Step 6: Display the summary of the nested mixed-effects model
+summary(mixed_model_nested)
+
+# Step 7: Compute marginal effects for rec_don using ggpredict
+marginal_effects_rec_don_nested <- ggpredict(mixed_model_nested, terms = "rec_don")
+
+# Step 8: Plot the marginal effects treating rec_don as a categorical variable
+ggplot(marginal_effects_rec_don_nested, aes(x = as.factor(x), y = predicted)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.1) +
+  scale_y_log10() +
+  coord_flip() +
+  labs(
+    x = "Recipient/Donor (0 = Recipient, 1 = Donor)",
+    y = "Predicted Probability (log scale)",
+    title = "Effect of Recipient/Donor on Attack Tweets (Nested Model)"
+  ) +
+  theme_minimal()
+
+
+```
+
+
+
+
+```{r}
+## H4
+
+## weighted regression for: attack - orientation
+
+
+# Step 1: Define the dependent variable
+y <- df_predicted_as_one_filtered$Attack_Support_Predicted
+
+# Step 2: Calculate weights for 'orientation' directly
+orientation_counts <- df_predicted_as_one_filtered %>%
+  count(orientation, name = "freq") %>%
+  mutate(weight_orientation = 1 / (freq / sum(freq)))
+
+# Step 3: Map weights back to the original dataset
+weights <- df_predicted_as_one_filtered$orientation %>%
+  sapply(function(o) {
+    orientation_counts %>% 
+      filter(orientation == o) %>% 
+      pull(weight_orientation)
+  })
+
+# Step 4: Fit the mixed-effects logistic regression model with a random intercept for each politician (ID)
+mixed_model <- glmer(
+  Attack_Support_Predicted ~ orientation + (1 | ID),
+  data = df_predicted_as_one_filtered,
+  family = binomial(link = "logit"),
+  weights = weights
+)
+
+# Step 5: Display the mixed model summary
+summary(mixed_model)
+
+# Step 6: Compute marginal effects using ggpredict
+marginal_effects_orientation <- ggpredict(mixed_model, terms = "orientation")
+
+# Step 7: Plot the marginal effects as categorical variables
+ggplot(marginal_effects_orientation, aes(x = as.factor(x), y = predicted)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.1) +
+  scale_y_log10() +
+  coord_flip() +
+  labs(
+    x = "Orientation", 
+    y = "Predicted Probability (log scale)", 
+    title = "Effect of Orientation on Attack Tweets"
+  ) +
+  theme_minimal()
+
+```
+
+
+
+```{r}
+
+## regression only populist for: attack - orientation
+
+# Filter for populist politicians only
+populist_data <- df_predicted_as_one_filtered %>%
+  filter(Populist == 1)
+
+# Fit the mixed-effects logistic regression model with a random intercept for each politician (ID)
+mixed_model <- glmer(
+  Attack_Support_Predicted ~ orientation + (1 | ID),
+  data = populist_data,
+  family = binomial(link = "logit"),
+  weights = weight_orientation
+)
+
+# Display the mixed model summary
+summary(mixed_model)
+
+# Step 6: Compute marginal effects using ggpredict
+marginal_effects_orientation <- ggpredict(mixed_model, terms = "orientation")
+
+# Step 7: Plot the marginal effects as categorical variables
+ggplot(marginal_effects_orientation, aes(x = as.factor(x), y = predicted)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.1) +
+  scale_y_log10() +
+  coord_flip() +
+  labs(
+    x = "Orientation", 
+    y = "Predicted Probability (log scale)", 
+    title = "Effect of Orientation on Attack Tweets"
+  ) +
+  theme_minimal()
+
+```
+
+
+```{r}
+
+
+# Step 1: Clean the dataset and keep only relevant columns
+df_cleaned <- df_predicted_as_one_filtered %>%
+  select(Populist, government, rec_don, orientation, Attack_Support_Predicted, ID) %>%
+  drop_na()
+
+# Step 2: Calculate weights for main effects
+# Weight for 'Populist'
+populist_counts <- df_cleaned %>%
+  count(Populist) %>%
+  mutate(freq = n / sum(n), weight_populist = 1 / freq)
+
+df_cleaned <- df_cleaned %>%
+  left_join(populist_counts %>% select(Populist, weight_populist), by = "Populist")
+
+# Weight for 'government'
+government_counts <- df_cleaned %>%
+  count(government) %>%
+  mutate(freq = n / sum(n), weight_government = 1 / freq)
+
+df_cleaned <- df_cleaned %>%
+  left_join(government_counts %>% select(government, weight_government), by = "government")
+
+# Weight for 'rec_don'
+recdon_counts <- df_cleaned %>%
+  count(rec_don) %>%
+  mutate(freq = n / sum(n), weight_rec_don = 1 / freq)
+
+df_cleaned <- df_cleaned %>%
+  left_join(recdon_counts %>% select(rec_don, weight_rec_don), by = "rec_don")
+
+# Weight for 'orientation'
+orientation_counts <- df_cleaned %>%
+  count(orientation) %>%
+  mutate(freq = n / sum(n), weight_orientation = 1 / freq)
+
+df_cleaned <- df_cleaned %>%
+  left_join(orientation_counts %>% select(orientation, weight_orientation), by = "orientation")
+
+# Combine weights for main effects
+df_cleaned <- df_cleaned %>%
+  mutate(weights_main_effects = weight_populist * weight_government * weight_rec_don * weight_orientation)
+
+# Normalize the weights
+df_cleaned <- df_cleaned %>%
+  mutate(weights_main_effects = weights_main_effects * n() / sum(weights_main_effects))
+
+# Step 5: Fit the mixed-effects logistic regression model with a random intercept for each politician (ID)
+mixed_model <- glmer(
+  Attack_Support_Predicted ~ Populist + government + rec_don + orientation + 
+    Populist * government + Populist * rec_don + government * rec_don + (1 | ID), 
+  data = df_cleaned,
+  family = binomial(link = "logit"),
+  weights = weights_main_effects,
+  control = glmerControl(optimizer = "bobyqa")
+)
+
+# Step 6: Display mixed model summary
+summary(mixed_model)
+
+
+
+```
+
+```{r}
+mixed_model_nested <- glmer(
+  Attack_Support_Predicted ~ Populist + government + rec_don + orientation + 
+    Populist * government + Populist * rec_don + government * rec_don +
+    (1 + government + rec_don | ID),  # Random intercept and slopes for government and rec_don
+  data = df_cleaned,
+  family = binomial(link = "logit"),
+  weights = weights_main_effects,
+  control = glmerControl(optimizer = "bobyqa")
+)
+summary(mixed_model_nested)
+```
+
+```{r}
+
+
+anova(mixed_model, mixed_model_nested, test = "Chisq")
+```
+
+```{r}
+# Compute marginal effects for government by Populist
+marginal_effects_gov_pop <- ggpredict(mixed_model_nested, terms = c("government", "Populist"))
+
+# Plot marginal effects
+ggplot(marginal_effects_gov_pop, aes(x = as.factor(x), y = predicted, color = as.factor(group))) +
+  geom_point(position = position_dodge(width = 0.3), size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                position = position_dodge(width = 0.3), width = 0.1) +
+  scale_y_log10() +
+  coord_flip() +
+  labs(
+    x = "Government (0 = Not in Government, 1 = In Government)",
+    y = "Predicted Probability (log scale)",
+    color = "Populist (0 = Non-Populist, 1 = Populist)",
+    title = "Marginal Effects: Government by Populist"
+  ) +
+  theme_minimal()
+
+```
+
+```{r}
+# Marginal effects: rec_don by Populist
+marginal_effects_pr <- ggpredict(mixed_model_nested, terms = c("rec_don", "Populist"))
+ggplot(marginal_effects_pr, aes(x = as.factor(x), y = predicted, color = as.factor(group))) +
+  geom_point(position = position_dodge(width = 0.3), size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high),
+                position = position_dodge(width = 0.3), width = 0.1) +
+  scale_y_log10() +
+  coord_flip() +
+  labs(x = "Recipient/Donor (0 = Recipient, 1 = Donor)",
+       y = "Predicted Probability (log scale)",
+       color = "Populist (0 = Non-Populist, 1 = Populist)",
+       title = "Marginal Effects: rec_don by Populist") +
+  theme_minimal()
+
+```
+```{r}
+# Marginal effects: Orientation by Populist
+marginal_effects_po <- ggpredict(mixed_model_nested, terms = c("orientation", "Populist"))
+ggplot(marginal_effects_po, aes(x = as.factor(x), y = predicted, color = as.factor(group))) +
+  geom_point(position = position_dodge(width = 0.3), size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high),
+                position = position_dodge(width = 0.3), width = 0.1) +
+  scale_y_log10() +
+  coord_flip() +
+  labs(x = "Orientation",
+       y = "Predicted Probability (log scale)",
+       color = "Populist (0 = Non-Populist, 1 = Populist)",
+       title = "Marginal Effects: Orientation by Populist") +
+  theme_minimal()
+
+```
+```{r}
+# Marginal effects: rec_don by Government
+marginal_effects_gr <- ggpredict(mixed_model_nested, terms = c("rec_don", "government"))
+ggplot(marginal_effects_gr, aes(x = as.factor(x), y = predicted, color = as.factor(group))) +
+  geom_point(position = position_dodge(width = 0.3), size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high),
+                position = position_dodge(width = 0.3), width = 0.1) +
+  scale_y_log10() +
+  coord_flip() +
+  labs(x = "Recipient/Donor (0 = Recipient, 1 = Donor)",
+       y = "Predicted Probability (log scale)",
+       color = "Government (0 = Not in Government, 1 = In Government)",
+       title = "Marginal Effects: rec_don by Government") +
+  theme_minimal()
+
+```
+```{r}
+# Marginal effects: Orientation by Government
+marginal_effects_go <- ggpredict(mixed_model_nested, terms = c("orientation", "government"))
+ggplot(marginal_effects_go, aes(x = as.factor(x), y = predicted, color = as.factor(group))) +
+  geom_point(position = position_dodge(width = 0.3), size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high),
+                position = position_dodge(width = 0.3), width = 0.1) +
+  scale_y_log10() +
+  coord_flip() +
+  labs(x = "Orientation",
+       y = "Predicted Probability (log scale)",
+       color = "Government (0 = Not in Government, 1 = In Government)",
+       title = "Marginal Effects: Orientation by Government") +
+  theme_minimal()
+
+```
+
+
+```{r}
+# Compute marginal effects for rec_don by orientation
+marginal_effects_rec_orient <- ggpredict(mixed_model_nested, terms = c("rec_don", "orientation"))
+
+# Plot marginal effects
+ggplot(marginal_effects_rec_orient, aes(x = as.factor(x), y = predicted, color = as.factor(group))) +
+  geom_point(position = position_dodge(width = 0.3), size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), 
+                position = position_dodge(width = 0.3), width = 0.1) +
+  scale_y_log10() +
+  coord_flip() +
+  labs(
+    x = "Recipient/Donor (0 = Recipient, 1 = Donor)",
+    y = "Predicted Probability (log scale)",
+    color = "Orientation",
+    title = "Marginal Effects: rec_don by Orientation"
+  ) +
+  theme_minimal()
+
+```
+
+```{r}
+# Step 1: Filter dataset for Populist == 1
+populist_df_gov <- df_predicted_as_one_filtered %>%
+  filter(Populist == 1)
+
+# Step 2: Convert 'government' to categorical numeric (0/1)
+populist_df_gov <- populist_df_gov %>%
+  mutate(government = as.numeric(as.factor(government)) - 1)
+
+# Step 3: Remove duplicate tweets based on 'Tweet Text'
+populist_df_gov <- populist_df_gov %>%
+  distinct(`Tweet Text`, .keep_all = TRUE)
+
+# Step 4: Calculate weights for `government` based on its mean
+populist_df_gov <- populist_df_gov %>%
+  mutate(weight_government = ifelse(
+    government == 1,
+    1 / mean(government == 1),
+    1 / mean(government == 0)
+  ))
+
+# Step 5: Fit nested mixed-effects logistic regression with random intercept and slope for government
+mixed_model_nested_gov <- glmer(
+  Attack_Support_Predicted ~ government + (1 + government | ID),
+  data = populist_df_gov,
+  family = binomial(link = "logit"),
+  weights = weight_government
+)
+
+# Step 6: Display model summary
+summary(mixed_model_nested_gov)
+
+# Step 7: Compute marginal effects for government
+marginal_effects_gov_nested <- ggpredict(mixed_model_nested_gov, terms = "government")
+
+# Step 8: Plot marginal effects treating government as categorical
+plot_gov <- ggplot(marginal_effects_gov_nested, aes(x = as.factor(x), y = predicted)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.1) +
+  scale_y_log10() +
+  coord_flip() +
+  labs(
+    x = "Government Status (0 = Opposition, 1 = Government)",
+    y = "Predicted Probability (log scale)",
+    title = "Effect of Government Status on Attack Tweets (Nested Model)"
+  ) +
+  theme_minimal()
+
+# Display plot
+print(plot_gov)
+```
+
+```{r}
+nonpopulist_df_gov <- df_predicted_as_one_filtered %>%
+  filter(Populist == 0)
+
+# Step 2: Convert 'government' to categorical numeric (0/1)
+nonpopulist_df_gov <- nonpopulist_df_gov %>%
+  mutate(government = as.numeric(as.factor(government)) - 1)
+
+# Step 3: Remove duplicate tweets based on 'Tweet Text'
+nonpopulist_df_gov <- nonpopulist_df_gov %>%
+  distinct(`Tweet Text`, .keep_all = TRUE)
+
+# Step 4: Calculate weights for `government` based on its mean
+nonpopulist_df_gov <- nonpopulist_df_gov %>%
+  mutate(weight_government = ifelse(
+    government == 1,
+    1 / mean(government == 1),
+    1 / mean(government == 0)
+  ))
+
+# Step 5: Fit nested mixed-effects logistic regression with random intercept and slope for government
+mixed_model_nested_gov_nonpop <- glmer(
+  Attack_Support_Predicted ~ government + (1 + government | ID),
+  data = nonpopulist_df_gov,
+  family = binomial(link = "logit"),
+  weights = weight_government
+)
+
+# Step 6: Display model summary
+summary(mixed_model_nested_gov_nonpop)
+
+# Step 7: Compute marginal effects for government
+marginal_effects_gov_nested_nonpop <- ggpredict(mixed_model_nested_gov_nonpop, terms = "government")
+
+# Step 8: Plot marginal effects treating government as categorical
+plot_gov_nonpopulist <- ggplot(marginal_effects_gov_nested_nonpop, aes(x = as.factor(x), y = predicted)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.1) +
+  scale_y_log10() +
+  coord_flip() +
+  labs(
+    x = "Government Status (0 = Opposition, 1 = Government)",
+    y = "Predicted Probability (log scale)",
+    title = "Effect of Government Status on Attack Tweets (Non-Populist Nested Model)"
+  ) +
+  theme_minimal()
+
+# Display plot
+print(plot_gov_nonpopulist)
+```
+
+
