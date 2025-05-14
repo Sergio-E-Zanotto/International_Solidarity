@@ -22,7 +22,7 @@ Official_dictionary.csv is the dictionary we used for identifying and classifyin
 - **R** (`Regressions.R`)  
   Reproduces all official regression models and generates marginal effects presented in the paper.
 
-- **Python** (`Official_test_hypothesis.py` and related modules)  
+- **Python** (`Official_test_hypothesys.py`)  
   Implements the core regression analyses and additional exploratory and robustness analyses described in the paper. Implement Sentiment Analysis and Classification of References in International Solidarity Tweets.
 
 ## Contact
