@@ -24,6 +24,14 @@ Due to X (formerly Twitter) data-sharing policies, data cannot be redistributed 
 - **Python** (`Official_analysis.py` and related modules)  
   Implements the core regression analyses and additional exploratory and robustness analyses described in the paper. Implement Sentiment Analysis and Classification of References in International Solidarity Tweets.
 
+## Contact
+
+For inquiries about the paper:  
+**Giada Pasquettaz** — [giada.pasquettaz@uni-konstanz.de](mailto:giada.pasquettaz@uni-konstanz.de)
+
+To request data access:  
+**David Garcia** — [office.garcia@uni-konstanz.de](mailto:office.garcia@uni-konstanz.de)
+
 ---
 
 ## Getting Started
@@ -34,10 +42,4 @@ Due to X (formerly Twitter) data-sharing policies, data cannot be redistributed 
 git clone https://github.com/Sergio-E-Zanotto/International_Solidarity.git
 cd International_Solidarity
 
-## Contact
 
-For inquiries about the paper:  
-**Giada Pasquettaz** — [giada.pasquettaz@uni-konstanz.de](mailto:giada.pasquettaz@uni-konstanz.de)
-
-To request data access:  
-**David Garcia** — [office.garcia@uni-konstanz.de](mailto:office.garcia@uni-konstanz.de)
