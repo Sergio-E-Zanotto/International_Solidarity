@@ -15,13 +15,14 @@ This repository hosts all materials for the paper authored by:
 
 The datasets analyzed in this study are available upon request to [office.garcia@uni-konstanz.de](mailto:office.garcia@uni-konstanz.de).  
 Due to X (formerly Twitter) data-sharing policies, data cannot be redistributed here.
+Official_dictionary.csv is the dictionary we used for identifying and classifying references of interest for our project.
 
 ### Scripts
 
 - **R** (`Regressions.R`)  
   Reproduces all official regression models and generates marginal effects presented in the paper.
 
-- **Python** (`Official_analysis.py` and related modules)  
+- **Python** (`Official_test_hypothesis.py` and related modules)  
   Implements the core regression analyses and additional exploratory and robustness analyses described in the paper. Implement Sentiment Analysis and Classification of References in International Solidarity Tweets.
 
 ## Contact
